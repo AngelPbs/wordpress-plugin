@@ -1,0 +1,231 @@
+<?php
+/*
+Plugin Name: Plugin-Test
+Version: 1.0
+Description: Admin panel plugin.
+Author: Paulo Vieira
+*/
+define('WP_DEBUG', true);
+
+// Adicione o menu no painel de administração
+add_action('admin_menu', 'plugin_test_menu');
+
+function plugin_test_menu() {
+    add_menu_page(
+        'Gerenciamento de Pessoas e Contatos',
+        'Gerenciamento',
+        'manage_options',
+        'gerenciamento-pessoas',
+        'exibir_pagina_gerenciamento',
+        'dashicons-admin-tools',
+        20
+    );
+
+    add_submenu_page('gerenciamento-pessoas', 'Adicionar/Editar Pessoa', 'Adicionar/Editar Pessoa', 'manage_options', 'add-edit-person', 'exibir_pagina_add');
+    // add_submenu_page('gerenciamento-pessoas', 'Adicionar/Editar Contato', 'Adicionar/Editar Contato', 'manage_options', 'add-edit-contact', 'exibir_pagina_add_edit_contact');
+    add_submenu_page('gerenciamento-pessoas', 'Listagem de Pessoas', 'Listagem de Pessoas', 'manage_options', 'list-people', 'exibir_pagina_list_people');
+}
+
+// Funções para exibir as páginas
+function exibir_pagina_gerenciamento() {
+    echo '<div class="wrap"><h2>Gerenciamento de Pessoas e Contatos</h2><p>Texto aparece aqui.</p></div>';
+}
+
+function exibir_pagina_add() {
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_person'])) {
+        // Processar os dados do formulário aqui
+        $name = sanitize_text_field($_POST['name']);
+        $email = sanitize_email($_POST['email']);
+        $number = sanitize_text_field($_POST['number']);
+
+        // Validação dos dados
+        if (strlen($name) < 6 || !is_email($email) || strlen($number) !== 9 || !ctype_digit($number)) {
+            echo '<div class="notice notice-error is-dismissible"><p>Por favor, preencha todos os campos corretamente.</p></div>';
+        } else {
+            $person_data = array(
+                'name' => $name,
+                'email' => $email,
+            );
+
+            $person_id = wp_insert_post(array(
+                'post_title' => $name,
+                'post_type' => 'person', 
+                'post_status' => 'publish',
+                'meta_input' => $person_data,
+            ));
+
+            if ($person_id) {
+                // Verifica se há dados de contato
+                $contact_data = array(
+                    'country_code' => '', // API DEPOIS
+                    'number' => $number,
+                    'person_id' => $person_id, // Associa o contato à pessoa usando a mesma ID
+                );
+
+                // Adicione lógica para salvar contato no banco de dados
+                $contact_id = wp_insert_post(array(
+                    'post_title' => $number,
+                    'post_type' => 'contact',
+                    'post_status' => 'publish',
+                    'meta_input' => $contact_data,
+                ));
+
+                if ($contact_id) {
+                    // Mensagem de sucesso
+                    echo '<div class="notice notice-success is-dismissible"><p>Pessoa e contato adicionados com sucesso!</p></div>';
+                } else {
+                    // Lidar com falha ao adicionar contato
+                    echo '<div class="notice notice-error is-dismissible"><p>Falha ao adicionar contato. Por favor, tente novamente.</p></div>';
+                }
+            } else {
+                // Falha ao adicionar pessoa
+                echo '<div class="notice notice-error is-dismissible"><p>Falha ao adicionar pessoa. Por favor, tente novamente.</p></div>';
+            }
+        }
+    }
+
+    ?>
+    <div class="wrap">
+        <h1>Adicionar/Editar Pessoa</h1>
+
+        <form action="" method="post">
+            <label for="name">Nome:</label>
+            <input type="text" name="name" id="name" required minlength="6">
+
+            <label for="email">Email:</label>
+            <input type="email" name="email" id="email" required>
+
+            <!-- Campo de contato -->
+            <label for="number">Número de Contato:</label>
+            <input type="text" name="number" id="number" pattern="\d{9}" title="Digite exatamente 9 dígitos" required>
+
+            <input type="submit" name="submit_person" value="Adicionar Pessoa">
+        </form>
+    </div>
+    <?php
+}
+
+
+function exibir_pagina_list_people() {
+    if (!defined('ABSPATH')) {
+        exit; // Sai se acessado diretamente.
+    }
+
+    echo '<div class="wrap">';
+    echo '<h1>Listagem de Pessoas</h1>';
+
+    $people = get_posts(array(
+        'post_type' => 'person', 
+        'post_status' => 'publish',
+        'numberposts' => -1,
+    ));
+
+    if ($people) {
+        echo '<ul>';
+        foreach ($people as $person) {
+            $person_id = $person->ID;
+            $person_name = get_the_title($person_id);
+            $person_email = get_post_meta($person_id, 'email', true);
+
+            echo '<li>';
+            echo '<strong>' . esc_html($person_name) . '</strong> - Email: ' . esc_html($person_email);
+echo ' | <a href="?page=list-people&edit_id=' . esc_attr($person_id) . '">Editar</a>';
+            echo ' | <a href="?page=list-people&delete_id=' . esc_attr($person_id) . '">Apagar</a>';
+
+            // Lista de contatos da pessoa
+            $contacts = get_posts(array(
+                'post_type' => 'contact', 
+                'post_status' => 'publish',
+                'numberposts' => -1,
+                'meta_query' => array(
+                    array(
+                        'key' => 'person_id',
+                        'value' => $person_id,
+                        'compare' => '=',
+                    ),
+                ),
+            ));
+
+            if ($contacts) {
+                echo '<ul>';
+                foreach ($contacts as $contact) {
+                    $country_code = get_post_meta($contact->ID, 'country_code', true);
+                    $number = get_post_meta($contact->ID, 'number', true);
+
+                    echo '<li>';
+                    echo ' - Contato: ' . esc_html($country_code) . ' ' . esc_html($number);
+echo ' | <a href="?page=list-people&edit_id=' . esc_attr($person_id) . '">Editar</a>';
+                    echo ' | <a href="?page=list-people&delete_contact_id=' . esc_attr($contact->ID) . '">Apagar</a>';
+                    echo '</li>';
+                }
+                echo '</ul>';
+            } else {
+                echo '<p>Nenhum contato encontrado para esta pessoa.</p>';
+            }
+
+            echo '</li>';
+        }
+        echo '</ul>';
+    } else {
+        echo '<p>Nenhuma pessoa encontrada.</p>';
+    }
+
+    echo '</div>';
+}
+
+add_action('admin_init', 'handle_person_deletion');
+
+function handle_person_deletion() {
+    if (isset($_GET['delete_id']) && current_user_can('manage_options')) {
+        $person_id = sanitize_text_field($_GET['delete_id']);
+// -----------------------------------------------------------APAGAR pessoa
+        wp_delete_post($person_id, true);
+        //------------------------------------------------------- Apos apagar voltar
+        wp_redirect(admin_url('admin.php?page=list-people'));
+        exit;
+    }
+}
+
+// -----------------------------------------------------------APAGAR CONTACTO
+add_action('admin_init', 'handle_contact_deletion');
+
+function handle_contact_deletion() {
+    if (isset($_GET['delete_contact_id']) && current_user_can('manage_options')) {
+        $contact_id = sanitize_text_field($_GET['delete_contact_id']);
+        
+        wp_delete_post($contact_id, true);
+        //------------------------------------------------------- Apos apagar voltar
+        wp_redirect(admin_url('admin.php?page=list-people'));
+        exit;
+    }
+}
+
+add_action("admin_init","editar_person");
+
+function editar_person() {
+    if (isset($_GET['edit_id']) && current_user_can('manage_options')) {
+        $person_id = sanitize_text_field($_GET['edit_id']);
+        $person_name = get_the_title($person_id);
+        $person_email = get_post_meta($person_id, 'email', true);
+        ?>
+        <div class="wrap">
+            <h1>Editar Pessoa</h1>
+            <form action="" method="post" style="display:flex;flex-direction:column;width=250px;position:absolute;left:500px">
+                <input type="hidden" name="edit_person_id" value="<?php echo esc_attr($person_id); ?>">
+                <label for="name">Nome:</label>
+                <input type="text" name="name" id="name" value="<?php echo esc_attr($person_name); ?>" required minlength="6">
+                <label for="email">Email:</label>
+                <input type="email" name="email" id="email" value="<?php echo esc_attr($person_email); ?>" required>
+              
+                <br>
+                <input type="submit" name="submit_edit_person" class="button button-primary" value="Salvar Alterações">
+            </form>
+        </div>
+        <?php
+    }
+}
+
+
+
+
+
